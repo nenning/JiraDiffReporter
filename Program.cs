@@ -17,126 +17,124 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        // CLI-Parsing
-        int tage = 7;
+        // Command-line parsing
+        int days = 7;
         for (int i = 0; i < args.Length; i++)
         {
             if ((args[i] == "-d" || args[i] == "-days")
                 && i + 1 < args.Length
                 && int.TryParse(args[i + 1], out var d))
             {
-                tage = d;
+                days = d;
                 i++;
             }
         }
 
-        // Configuration: JQL from JSON, secrets for credentials
+        // Load configuration: JQL from JSON, other settings from User Secrets
         var config = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .AddUserSecrets<Program>()
             .Build();
 
-        var basisUrl = config["Jira:BaseUrl"]
-                     ?? throw new InvalidOperationException("Fehlende Jira:BaseUrl in User Secrets");
+        var baseUrl = config["Jira:BaseUrl"]
+                     ?? throw new InvalidOperationException("Missing Jira:BaseUrl in User Secrets");
         var email = config["Jira:Email"]
-                     ?? throw new InvalidOperationException("Fehlende Jira:Email in User Secrets");
+                     ?? throw new InvalidOperationException("Missing Jira:Email in User Secrets");
         var token = config["Jira:ApiToken"]
-                     ?? throw new InvalidOperationException("Fehlendes Jira:ApiToken in User Secrets");
+                     ?? throw new InvalidOperationException("Missing Jira:ApiToken in User Secrets");
         var jqlQuery = config["Jira:Jql"]
-                     ?? throw new InvalidOperationException("Fehlendes Jira:Jql in appsettings.json");
+                      ?? throw new InvalidOperationException("Missing Jira:Jql in appsettings.json");
 
-        // HTTP-Client vorbereiten
-        var client = new HttpClient { BaseAddress = new Uri(basisUrl) };
-        var auth = Convert.ToBase64String(
-            Encoding.ASCII.GetBytes($"{email}:{token}"));
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Basic", auth);
+        // Prepare HTTP client
+        var client = new HttpClient { BaseAddress = new Uri(baseUrl) };
+        var auth = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{email}:{token}"));
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", auth);
 
-        // Paginierung: Issues + Changelog
-        const int seitenGroesse = 1000;
-        var alleTickets = new List<Issue>();
+        // Pagination: fetch all issues + changelog
+        const int pageSize = 1000;
+        var allIssues = new List<Issue>();
         int startAt = 0, total = int.MaxValue;
         while (startAt < total)
         {
-            var url = $"/rest/api/3/search?jql={UrlEncoder.Default.Encode(jqlQuery)}&expand=changelog&startAt={startAt}&maxResults={seitenGroesse}";
-            var resp = await client.GetAsync(url);
-            resp.EnsureSuccessStatusCode();
-            var seite = await resp.Content.ReadFromJsonAsync<JiraSearchResult>()
-                       ?? throw new Exception("Fehler beim Parsen der Jira-Antwort.");
-            total = seite.Total;
-            alleTickets.AddRange(seite.Issues);
-            startAt += seite.Issues.Count;
+            var url = $"/rest/api/3/search?jql={UrlEncoder.Default.Encode(jqlQuery)}&expand=changelog&startAt={startAt}&maxResults={pageSize}";
+            var response = await client.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+            var pageResult = await response.Content.ReadFromJsonAsync<JiraSearchResult>()
+                             ?? throw new Exception("Error parsing Jira response.");
+            total = pageResult.Total;
+            allIssues.AddRange(pageResult.Issues);
+            startAt += pageResult.Issues.Count;
         }
 
-        // Cutoff lokal
-        var cutoff = DateTime.Now.AddDays(-tage);
+        // Determine cutoff in local timezone
+        var cutoff = DateTime.Now.AddDays(-days);
 
-        // HTML-Bericht
+        // Build HTML report
         var sb = new StringBuilder();
         sb.AppendLine("<html><head><meta charset=\"utf-8\"><style>");
-        sb.AppendLine("ins {background-color: #dfd;} del {background-color: #fdd;} ");
-        sb.AppendLine("body {font-family: Arial, sans-serif;} h2 {margin-top: 2em;} ul {margin-left:1em;} ");
+        sb.AppendLine("ins {background-color: #dfd;} del {background-color: #fdd;}");
+        sb.AppendLine("body {font-family: Arial, sans-serif;} h2 {margin-top: 2em;} ul {margin-left:1em;}");
         sb.AppendLine("</style></head><body>");
-        sb.AppendLine($"<h1>Jira Änderungen (letzte {tage} Tage) — {DateTime.Now:yyyy-MM-dd}</h1>");
+        sb.AppendLine($"<h1>Jira Änderungen (letzte {days} Tage) — {DateTime.Now:yyyy-MM-dd}</h1>");
 
         var diffBuilder = new InlineDiffBuilder(new Differ());
 
-        // Änderungen
-        foreach (var ticket in alleTickets)
+        // Summary/description changes
+        foreach (var issue in allIssues)
         {
-            var aenderungen = ticket.Changelog.Histories
+            var changes = issue.Changelog.Histories
                 .Where(h => DateTime.Parse(h.Created).ToLocalTime() >= cutoff)
                 .SelectMany(h => h.Items
                     .Where(i => i.Field is "summary" or "description")
                     .Select(i => new {
-                        Wann = DateTime.Parse(h.Created).ToLocalTime(),
-                        Feld = i.Field,
-                        Von = i.FromString ?? string.Empty,
-                        Nach = i.ToValue ?? string.Empty
+                        When = DateTime.Parse(h.Created).ToLocalTime(),
+                        Field = i.Field,
+                        From = i.FromString ?? string.Empty,
+                        To = i.ToValue ?? string.Empty
                     }))
                 .ToList();
-            if (!aenderungen.Any()) continue;
-            sb.AppendLine($"<h2><a href=\"{basisUrl}/browse/{ticket.Key}\">{ticket.Key}</a>: {ticket.Fields.Summary}</h2>");
-            foreach (var a in aenderungen)
+            if (!changes.Any()) continue;
+
+            sb.AppendLine($"<h2><a href=\"{baseUrl}/browse/{issue.Key}\">{issue.Key}</a>: {issue.Fields.Summary}</h2>");
+            foreach (var c in changes)
             {
-                sb.AppendLine($"<h3>{a.Feld} geändert am {a.Wann:yyyy-MM-dd HH:mm}</h3>");
-                sb.AppendLine(RenderDiffHtml(diffBuilder.BuildDiffModel(a.Von, a.Nach)));
+                sb.AppendLine($"<h3>{c.Field} geändert am {c.When:yyyy-MM-dd HH:mm}</h3>");
+                sb.AppendLine(RenderDiffHtml(diffBuilder.BuildDiffModel(c.From, c.To)));
             }
         }
 
-        // Neue Tickets
-        var neueTickets = alleTickets
-            .Where(t => DateTime.Parse(t.Fields.Created).ToLocalTime() >= cutoff)
+        // Newly created issues
+        var newIssues = allIssues
+            .Where(i => DateTime.Parse(i.Fields.Created).ToLocalTime() >= cutoff)
             .ToList();
-        if (neueTickets.Any())
+        if (newIssues.Any())
         {
             sb.AppendLine("<h2>Neu erstellte Issues</h2><ul>");
-            neueTickets.ForEach(nt =>
-                sb.AppendLine($"<li><a href=\"{basisUrl}/browse/{nt.Key}\">{nt.Key}</a>: {nt.Fields.Summary}</li>"));
+            newIssues.ForEach(n => sb.AppendLine($"<li><a href=\"{baseUrl}/browse/{n.Key}\">{n.Key}</a>: {n.Fields.Summary}</li>"));
             sb.AppendLine("</ul>");
         }
 
         sb.AppendLine("</body></html>");
 
-        // Ausgabe
-        const string htmlPfad = "JiraAenderungen.html";
-        await File.WriteAllTextAsync(htmlPfad, sb.ToString(), Encoding.UTF8);
-        Console.WriteLine($"✅ HTML-Bericht gespeichert: {htmlPfad}");
+        // Save HTML
+        const string htmlPath = "JiraAenderungen.html";
+        await File.WriteAllTextAsync(htmlPath, sb.ToString(), Encoding.UTF8);
+        Console.WriteLine($"✅ HTML-Bericht gespeichert: {htmlPath}");
     }
 
     static string RenderDiffHtml(DiffPaneModel model)
     {
         var html = new StringBuilder("<div>");
-        foreach (var zeile in model.Lines)
+        foreach (var line in model.Lines)
         {
-            var tag = zeile.Type switch
+            var tag = line.Type switch
             {
                 ChangeType.Inserted => "ins",
                 ChangeType.Deleted => "del",
                 _ => "span"
             };
-            html.Append($"<{tag}>{System.Net.WebUtility.HtmlEncode(zeile.Text)}</{tag}><br/>");
+            html.Append($"<{tag}>{System.Net.WebUtility.HtmlEncode(line.Text)}</{tag}><br/>");
         }
         html.Append("</div>");
         return html.ToString();
