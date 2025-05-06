@@ -63,19 +63,27 @@ Dazu gibt es PowerShell- und Bash-Skripte, um den Report auszuführen, eine E-Ma
 
 ---
 
-## Ausführung
+## Ausführung (Windows)
 
-### PowerShell (Windows)
+### PowerShell
 
 ```powershell
-.\\run-report.ps1
+run-report.ps1
 ```
+Parameter:
+* `-d <Anzahl>` oder `--days <Anzahl>`: Anzahl Tage, die im Report berücksichtigt werden (Standard: 7).
+
+Der generierte Bericht wird direkt in einer E-Mail geöffnet.
+
+
+### Applikation
+```powershell
+JiraDiffReporter.exe
+```
+Parameter:
+* `-Days <Anzahl>`: Anzahl Tage, die im Report berücksichtigt werden (Standard: 7).
 
 Der generierte Bericht liegt als `JiraAenderungen.html` im gleichen Verzeichnis.
-
-### Kommandozeilen-Parameter für die Applikation
-
-* `-d <Anzahl>` oder `--days <Anzahl>`: Anzahl der Tage, die im Report berücksichtigt werden (Standard: 7).
 
 ---
 
@@ -86,12 +94,12 @@ Der generierte Bericht liegt als `JiraAenderungen.html` im gleichen Verzeichnis.
 * **Task registrieren**:
 
   ```powershell
-  .\register-report.ps1
+  register-report.ps1
   ```
 * **Task entfernen**:
 
   ```powershell
-  .\unregister-report.ps1
+  unregister-report.ps1
   ```
 
 Der Task `JiraReportWeekly` läuft dann jeden Dienstag um 09:00 Uhr.
