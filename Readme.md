@@ -34,19 +34,18 @@ Dazu gibt es PowerShell- und Bash-Skripte, um den Report auszuführen, eine E-Ma
 1. Repository klonen:
 
    ```bash
+   git clone https://github.com/nenning/JiraDiffReporter.git
+   cd JiraDiffReporter
    ```
 
-git clone [https://github.com/nenning/JiraDiffReporter.git](https://github.com/nenning/JiraDiffReporter.git) cd JiraDiffReporter
-
-````
-2. `appsettings.json` erstellen und JQL anpassen (wird ignoriert):
+2. `appsettings.json` falls notwendig anpassen:
    ```json
    {
      "Jira": {
        "Jql": "parentEpic=edu-85 AND project IN (EDU) ORDER BY key ASC"
      }
    }
-````
+   ```
 
 3. User Secrets initialisieren und Jira-Zugangsdaten setzen:
 
