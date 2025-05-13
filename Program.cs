@@ -38,13 +38,13 @@ class Program
             .Build();
 
         var baseUrl = config["Jira:BaseUrl"]
-                     ?? throw new InvalidOperationException("Missing Jira:BaseUrl in User Secrets");
+                        ?? throw new InvalidOperationException("Missing Jira:BaseUrl in User Secrets");
         var email = config["Jira:Email"]
-                     ?? throw new InvalidOperationException("Missing Jira:Email in User Secrets");
+                        ?? throw new InvalidOperationException("Missing Jira:Email in User Secrets");
         var token = config["Jira:ApiToken"]
-                     ?? throw new InvalidOperationException("Missing Jira:ApiToken in User Secrets");
+                        ?? throw new InvalidOperationException("Missing Jira:ApiToken in User Secrets");
         var jqlQuery = config["Jira:Jql"]
-                      ?? throw new InvalidOperationException("Missing Jira:Jql in appsettings.json");
+                        ?? throw new InvalidOperationException("Missing Jira:Jql in appsettings.json");
 
         // Prepare HTTP client
         var client = new HttpClient { BaseAddress = new Uri(baseUrl) };
@@ -80,9 +80,15 @@ class Program
 
         var diffBuilder = new InlineDiffBuilder(new Differ());
 
-        // Summary/description changes (one diff per field)
+        // Summary/description changes (one diff per field), skip brand-new issues
         foreach (var issue in allIssues)
         {
+            // Skip issues created in the diff period
+            var createdAt = DateTime.Parse(issue.Fields.Created).ToLocalTime();
+            if (createdAt >= cutoff)
+                continue;
+
+            // Gather all edits to summary/description in window
             var rawChanges = issue.Changelog.Histories
                 .Where(h => DateTime.Parse(h.Created).ToLocalTime() >= cutoff)
                 .SelectMany(h => h.Items
@@ -99,7 +105,7 @@ class Program
             if (!rawChanges.Any())
                 continue;
 
-            // Group by field, pick earliest From and latest To
+            // For each field, diff only initial vs. latest
             var grouped = rawChanges
                 .GroupBy(c => c.Field)
                 .Select(g =>
