@@ -55,7 +55,10 @@ Dazu gibt es PowerShell- und Bash-Skripte, um den Report auszuführen, eine E-Ma
    dotnet user-secrets set "Jira:Email" "you@company.com"
    dotnet user-secrets set "Jira:ApiToken" "YOUR_API_TOKEN_HERE"
    ```
-4. Abhängigkeiten installieren:
+
+4. recipients.txt anlegen (im gleichen Ordner wie die Skripte), um die Empfänger dynamisch zu verwalten. Format: eine E-Mail-Adresse pro Zeile
+
+5. Abhängigkeiten installieren:
 
    ```bash
    dotnet restore
