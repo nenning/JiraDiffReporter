@@ -80,27 +80,47 @@ class Program
 
         var diffBuilder = new InlineDiffBuilder(new Differ());
 
-        // Summary/description changes
+        // Summary/description changes (one diff per field)
         foreach (var issue in allIssues)
         {
-            var changes = issue.Changelog.Histories
+            var rawChanges = issue.Changelog.Histories
                 .Where(h => DateTime.Parse(h.Created).ToLocalTime() >= cutoff)
                 .SelectMany(h => h.Items
                     .Where(i => i.Field is "summary" or "description")
-                    .Select(i => new {
+                    .Select(i => new
+                    {
                         When = DateTime.Parse(h.Created).ToLocalTime(),
                         Field = i.Field,
                         From = i.FromString ?? string.Empty,
                         To = i.ToValue ?? string.Empty
                     }))
                 .ToList();
-            if (!changes.Any()) continue;
+
+            if (!rawChanges.Any())
+                continue;
+
+            // Group by field, pick earliest From and latest To
+            var grouped = rawChanges
+                .GroupBy(c => c.Field)
+                .Select(g =>
+                {
+                    var ordered = g.OrderBy(c => c.When).ToList();
+                    return new
+                    {
+                        Field = g.Key,
+                        From = ordered.First().From,
+                        To = ordered.Last().To,
+                        When = ordered.Last().When
+                    };
+                })
+                .ToList();
 
             sb.AppendLine($"<h2><a href=\"{baseUrl}/browse/{issue.Key}\">{issue.Key}</a>: {issue.Fields.Summary}</h2>");
-            foreach (var c in changes)
+            foreach (var c in grouped)
             {
                 sb.AppendLine($"<h3>{c.Field} geändert am {c.When:yyyy-MM-dd HH:mm}</h3>");
-                sb.AppendLine(RenderDiffHtml(diffBuilder.BuildDiffModel(c.From, c.To)));
+                var diffModel = diffBuilder.BuildDiffModel(c.From, c.To);
+                sb.AppendLine(RenderDiffHtml(diffModel));
             }
         }
 
@@ -111,7 +131,8 @@ class Program
         if (newIssues.Any())
         {
             sb.AppendLine("<h2>Neu erstellte Issues</h2><ul>");
-            newIssues.ForEach(n => sb.AppendLine($"<li><a href=\"{baseUrl}/browse/{n.Key}\">{n.Key}</a>: {n.Fields.Summary}</li>"));
+            newIssues.ForEach(n => sb.AppendLine(
+                $"<li><a href=\"{baseUrl}/browse/{n.Key}\">{n.Key}</a>: {n.Fields.Summary}</li>"));
             sb.AppendLine("</ul>");
         }
 
